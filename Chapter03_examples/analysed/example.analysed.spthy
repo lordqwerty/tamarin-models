@@ -1,0 +1,56 @@
+theory example begin
+
+// Function signature and definition of the equational theory E
+
+functions: adec/2, aenc/2, fst/1, pair/2, pk/1, snd/1
+equations:
+    adec(aenc(x.1, pk(x.2)), x.2) = x.1,
+    fst(<x.1, x.2>) = x.1,
+    snd(<x.1, x.2>) = x.2
+
+rule (modulo E) Create:
+   [ Fr( ~k ) ] --> [ !Ltk( $A, ~k ), !Pk( $A, pk(~k) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Send:
+   [ !Pk( $R, pkr ), Fr( ~ni ) ]
+  --[ Sent( ~ni ) ]->
+   [ Out( aenc(~ni, pkr) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Receive:
+   [ !Ltk( $R, skr ), In( aenc(ni, pk(skr)) ) ]
+  --[ Answer( adec(aenc(ni, pk(skr)), skr) ), Received( ni ) ]->
+   [ ]
+
+  /*
+  rule (modulo AC) Receive:
+     [ !Ltk( $R, skr ), In( aenc(ni, pk(skr)) ) ]
+    --[ Answer( ni ), Received( ni ) ]->
+     [ ]
+  */
+
+lemma executable_example:
+  exists-trace
+  "∃ z #i #j. ((Sent( z ) @ #i) ∧ (Received( z ) @ #j)) ∧ (#i < #j)"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ z #i #j. (Sent( z ) @ #i) ∧ (Received( z ) @ #j) ∧ #i < #j"
+*/
+simplify
+solve( !Pk( $R, pkr ) ▶₀ #i )
+  case Create
+  solve( !Ltk( $R.1, skr ) ▶₀ #j )
+    case Create
+    solve( !KU( aenc(~ni, pk(~k.1)) ) @ #vk )
+      case Send
+      SOLVED // trace found
+    qed
+  qed
+qed
+
+/* All well-formedness checks were successful. */
+
+end

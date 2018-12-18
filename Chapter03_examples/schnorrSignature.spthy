@@ -1,0 +1,153 @@
+/*
+  Protocol: SchnorrSignature
+  Author:   Steve Wesemeyer & Jorden Whitefield
+  Date:     October 2018
+
+  Status:   Stable
+
+  Version: TAMARIN Prover 1.4.0 commit 7ced07a69f8e93178f9a95797479277a736ae572
+           https://github.com/tamarin-prover/tamarin-prover/releases/tag/1.4.0
+
+  Citation:
+          Efficient Identification and Signatures for Smart Cards,
+          Advances in Cryptology - CRYPTO '89, pages. 239--252,
+          1989, doi: 10.1007/0-387-34805-0_22, Claus-Peter Schnorr.
+*/
+
+theory SchnorrSignature
+begin
+
+builtins: diffie-hellman, asymmetric-encryption
+
+functions: calcR/1, h2/2, minus/2, plus/2, multp/2
+
+
+equations:
+    calcR( multp( g^minus( k, multp( x, h2( gk, m ) ) ), pk( x )^h2( gk, m ) ) ) = gk
+
+/*
+equality restriction:
+  Such checks ensure that all instances of equality actions
+  within traces are valid, meaning that both arguments within the action must be
+  equal. We use this for modelling the verification of Schnorr signatures.
+*/
+restriction equality: "All #i x y . Eq( x, y ) @ i ==> x = y"
+
+
+// Registering a public key
+rule Generate_DH_key_pair:
+    [ Fr( ~x ) ]
+    -->
+    [
+        !Ltk( $A, ~x )
+      , !Pk( $A, pk( ~x ) )   // note we use pk(~sk) to mean 'g'^~sk
+      , Out( pk( ~x ) )
+    ]
+
+
+// reveal a user's secret key
+rule Reveal_ltk:
+    [ !Ltk( $A, x ) ]
+  --[ LtkReveal( $A ) ]->
+    [ Out( x ) ]
+
+
+// A signs a message
+rule sign_message:
+  let
+    r = 'g'^~k
+    e = h2( r, ~m )
+    s = minus( ~k, multp( ~x, e ) )
+  in
+    [
+        Fr( ~m )          // the message
+      , !Ltk( $A, ~x )  // the private key ~x
+      , Fr( ~k )          // the random variable k
+    ]
+  --[
+        Signed( ~m, $A )
+      , Honest( $A )
+      , Honest( $B )
+      , Create( $A )
+      , Running( $A, $B, ~m )
+    ]->
+    [ Out( < ~m, e, s > ) ]
+
+
+// B verifies message
+rule verify_message:
+  let
+    rv = calcR( multp( 'g'^s, pka^e ) )
+    ev = h2( rv, m )
+  in
+    [
+        In( < m, e, s > )   // signed message
+      , !Pk( $A, pka )     // public key of $A
+    ]
+  --[
+        Eq( ev, e )             // if e != ev abort.
+      , Honest( $A )
+      , Honest( $B )
+      , Verified( m, $A, $B )
+      , Commit( $B, $A, m )
+    ]->
+    [ ]
+
+
+// can we verify a signature?
+lemma functional_correctness: exists-trace
+"
+  // there are distinct entities A and B at i and j as well as a message m such that
+  Ex A B m #i #j.
+
+    // A signed a message and then B verified it
+    Signed( m, A ) @ #i & Verified( m, A, B ) @ #j & i < j & not( A = B) &
+
+    // there was no key reveal of any entity
+    not( Ex C #k . LtkReveal( C ) @ #k )
+"
+
+
+// can we forge a signature?
+lemma unforgeability:
+// if we reached the verified state then
+" All A B m #i .
+    Verified( m, A, B ) @ #i
+      ==>
+        (
+          // either A did sign it previously
+          ( Ex #j. Signed( m, A ) @ #j & j < i ) |
+
+          // or an agent's private key leaked
+          ( Ex C #k . LtkReveal( C ) @ #k & Honest( C ) @ i & k < i )
+        )
+"
+
+
+lemma aliveness:
+"
+All a b n #i .
+  /* For all committed sessions running between Alice and Bob on the term(s) n */
+  Commit( a, b, n ) @ i
+  ==>
+      /* Implies that an agent has previously been created */
+      ( Ex #j . Create( b ) @ j )
+      /* or it is the case that the agents secret key has been revealed */
+      | ( Ex C #r . LtkReveal( C )  @ r & Honest( C ) @ i )
+"
+
+
+lemma weak_agreement:
+"
+All a b n #i .
+  /* For all committed sessions running between Alice and Bob on the term(s) n */
+  Commit( a, b, n ) @ i
+    ==>
+        /* Implies there exists a running Bob on some term(s) n2 */
+        ( Ex n2 #j . Running( b, a, n2 ) @ j )
+        /* or it is the case that the secret key has been revealed */
+        | ( Ex C #r . LtkReveal( C ) @ r & Honest( C ) @ i )
+"
+
+
+end

@@ -1,0 +1,40 @@
+/*
+ *  Author: Jorden Whitefield
+ *  Model Name: example.spthy
+ *  Status: Stable
+ *
+ *  Comments:
+ */
+
+theory example
+begin
+
+builtins: asymmetric-encryption
+
+
+rule Create:
+    [ Fr( ~k ) ]
+    -->
+    [ !Ltk( $A, ~k ), !Pk( $A, pk( ~k ) ) ]
+
+
+rule Send:
+    [ !Pk( $R, pkr ), Fr( ~ni ) ]
+  --[ Sent( ~ni ) ]->
+    [ Out( aenc( ~ni, pkr ) ) ]
+
+
+rule Receive:
+    [ !Ltk( $R, skr ), In( aenc( ni, pk( skr ) ) ) ]
+  --[ Answer( adec( aenc( ni, pk( skr ) ), skr ) ), Received( ni ) ]->
+    [  ]
+
+
+lemma executable_example: exists-trace
+"
+	Ex z #i #j .
+		Sent( z ) @ #i & Received( z ) @ #j
+    & i < j
+"
+
+end

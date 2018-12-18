@@ -1,0 +1,64 @@
+theory detEnc begin
+
+// Function signature and definition of the equational theory E
+
+functions: adec/2, aenc/2, fst/1, pair/2, pk/1, snd/1
+equations:
+    adec(aenc(x.1, pk(x.2)), x.2) = x.1,
+    fst(<x.1, x.2>) = x.1,
+    snd(<x.1, x.2>) = x.2
+
+rule (modulo E) gen:
+   [ Fr( ~k ) ] --> [ !Key( ~k ), Out( pk(~k) ) ]
+
+rule (modulo E) enc:
+   [ !Key( k ), Fr( ~r ), In( x ) ]
+  -->
+   [ Out( diff(~r, aenc(x, pk(k))) ) ]
+
+/* All well-formedness checks were successful. */
+
+diffLemma Observational_equivalence:
+rule-equivalence
+  case Rule_Equality
+  backward-search
+    case RHS
+    step( simplify )
+    step( solve( !KD( x ) ▶₁ #i ) )
+      case enc
+      step( solve( (#vl, 0) ~~> (#i, 1) ) )
+        case aenc
+        step( solve( !Key( k ) ▶₀ #vr ) )
+          case gen
+          step( solve( !KU( aenc(x, pk(~k)) ) @ #vk ) )
+            case c_aenc
+            step( solve( !KU( pk(~k) ) @ #vk.2 ) )
+              case gen
+              step( solve( !KU( x ) @ #vk.2 ) )
+                case c_adec
+                step( solve( !KU( adec(x, x.1) ) @ #vk.2 ) )
+                  case c_adec
+                  step( solve( !KU( x ) @ #vk.3 ) )
+                    case fresh
+                    step( solve( !KU( ~x ) @ #vk.3 ) )
+                      case fresh
+                      step( solve( !KU( x.1 ) @ #vk.4 ) )
+                        case fresh
+                        step( solve( !KU( ~x.1 ) @ #vk.4 ) )
+                          case fresh
+                          by ATTACK // trace found
+                        qed
+                      qed
+                    qed
+                  qed
+                qed
+              qed
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+end

@@ -1,0 +1,25 @@
+theory detEnc 
+begin
+
+/*
+ * Protocol:     Deterministic encryption
+ * Modeler:      Jorden Whitefield
+ * Date:         November 2018
+ *
+ * Status: 	working
+ * Observational equivalence is proven automatically in less than 0.4 seconds.
+ */
+
+builtins: asymmetric-encryption
+
+rule gen:
+  [ Fr(~k) ]
+--[ ]->
+  [ !Key(~k), Out(pk(~k)) ]
+
+rule enc:
+  [ !Key(k), Fr(~r), In(x) ]
+--[ ]->
+  [ Out(diff(~r, aenc(x, pk(k)))) ]
+
+end

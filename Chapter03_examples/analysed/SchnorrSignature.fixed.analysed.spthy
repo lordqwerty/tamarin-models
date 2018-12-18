@@ -1,0 +1,699 @@
+theory SchnorrSignature_FIXED begin
+
+// Function signature and definition of the equational theory E
+
+builtins: diffie-hellman
+functions: adec/2, aenc/2, calcR/1, fst/1, h3/3, minus/2, multp/2,
+           pair/2, pk/1, plus/2, snd/1
+equations:
+    adec(aenc(x.1, pk(x.2)), x.2) = x.1,
+    calcR(multp(g^minus(k, multp(x, h3(A, gk, m))),
+                pk(x)^h3(A, gk, m)))
+  = gk,
+    fst(<x.1, x.2>) = x.1,
+    snd(<x.1, x.2>) = x.2
+
+restriction equality:
+  "∀ #i x y. (Eq( x, y ) @ #i) ⇒ (x = y)"
+  // safety formula
+
+rule (modulo E) Generate_DH_key_pair:
+   [ Fr( ~x ) ]
+  -->
+   [ !Ltk( $A, ~x ), !Pk( $A, pk(~x) ), Out( pk(~x) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_ltk:
+   [ !Ltk( $A, x ) ] --[ LtkReveal( $A ) ]-> [ Out( x ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) sign_message:
+   [ Fr( ~m ), !Ltk( $A, ~x ), Fr( ~k ) ]
+  --[ Signed( ~m, $A ), Create( $A ), Running( $A, $B, ~m ) ]->
+   [
+   Out( <~m, h3($B, 'g'^~k, ~m), 
+         minus(~k, multp(~x, h3($B, 'g'^~k, ~m)))>
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) verify_message:
+   [ In( <m, e, s> ), !Pk( $A, pka ) ]
+  --[
+  Eq( h3($B, calcR(multp('g'^s, pka^e)), m), e ),
+  Verified( m, $A, $B ), Commit( $B, $A, m )
+  ]->
+   [ ]
+
+  /*
+  rule (modulo AC) verify_message:
+     [ In( <m, e, s> ), !Pk( $A, pka ) ]
+    --[
+    Eq( h3($B, z, m), e ), Verified( m, $A, $B ), Commit( $B, $A, m )
+    ]->
+     [ ]
+    variants (modulo AC)
+      1. e     = e.8
+         pka   = pka.8
+         s     = s.8
+         z     = calcR(multp('g'^s.8, pka.8^e.8))
+    
+      2. e     = e.8
+         pka   = pka.8
+         s     = one
+         z     = calcR(multp('g', pka.8^e.8))
+    
+      3. e     = x.8
+         pka   = x.9^inv(x.8)
+         s     = s.10
+         z     = calcR(multp('g'^s.10, x.9))
+    
+      4. e     = x.8
+         pka   = x.9^inv(x.8)
+         s     = one
+         z     = calcR(multp('g', x.9))
+    
+      5. e     = x.8
+         pka   = x.9^inv((x.8*x.10))
+         s     = s.11
+         z     = calcR(multp('g'^s.11, x.9^inv(x.10)))
+    
+      6. e     = x.8
+         pka   = x.9^inv((x.8*x.10))
+         s     = one
+         z     = calcR(multp('g', x.9^inv(x.10)))
+    
+      7. e     = x.8
+         pka   = x.9^(x.10*inv(x.8))
+         s     = s.11
+         z     = calcR(multp('g'^s.11, x.9^x.10))
+    
+      8. e     = x.8
+         pka   = x.9^(x.10*inv(x.8))
+         s     = one
+         z     = calcR(multp('g', x.9^x.10))
+    
+      9. e     = x.8
+         pka   = x.9^(x.11*inv((x.8*x.10)))
+         s     = s.12
+         z     = calcR(multp('g'^s.12, x.9^(x.11*inv(x.10))))
+    
+     10. e     = x.8
+         pka   = x.9^(x.11*inv((x.8*x.10)))
+         s     = one
+         z     = calcR(multp('g', x.9^(x.11*inv(x.10))))
+    
+     11. e     = x.8
+         pka   = pk(x.11)^(h3(x.9, x.12, x.13)*inv(x.8))
+         s     = minus(x.10, multp(x.11, h3(x.9, x.12, x.13)))
+         z     = x.12
+    
+     12. e     = e.10
+         pka   = x.8^x.9
+         s     = s.10
+         z     = calcR(multp('g'^s.10, x.8^(x.9*e.10)))
+    
+     13. e     = e.10
+         pka   = x.8^x.9
+         s     = one
+         z     = calcR(multp('g', x.8^(x.9*e.10)))
+    
+     14. e     = h3(x.8, x.11, x.12)
+         pka   = pk(x.10)
+         s     = minus(x.9, multp(x.10, h3(x.8, x.11, x.12)))
+         z     = x.11
+    
+     15. e     = inv(x.9)
+         pka   = x.8^x.9
+         s     = s.10
+         z     = calcR(multp('g'^s.10, x.8))
+    
+     16. e     = inv(x.9)
+         pka   = x.8^x.9
+         s     = one
+         z     = calcR(multp('g', x.8))
+    
+     17. e     = inv(x.9)
+         pka   = x.8^inv(x.10)
+         s     = s.11
+         z     = calcR(multp('g'^s.11, x.8^inv((x.9*x.10))))
+    
+     18. e     = inv(x.9)
+         pka   = x.8^inv(x.10)
+         s     = one
+         z     = calcR(multp('g', x.8^inv((x.9*x.10))))
+    
+     19. e     = inv(x.9)
+         pka   = x.8^(x.9*x.10)
+         s     = s.11
+         z     = calcR(multp('g'^s.11, x.8^x.10))
+    
+     20. e     = inv(x.9)
+         pka   = x.8^(x.9*x.10)
+         s     = one
+         z     = calcR(multp('g', x.8^x.10))
+    
+     21. e     = inv(x.9)
+         pka   = x.8^(x.11*inv(x.10))
+         s     = s.12
+         z     = calcR(multp('g'^s.12, x.8^(x.11*inv((x.9*x.10)))))
+    
+     22. e     = inv(x.9)
+         pka   = x.8^(x.11*inv(x.10))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.11*inv((x.9*x.10)))))
+    
+     23. e     = inv(x.9)
+         pka   = pk(x.11)^(x.9*h3(x.8, x.12, x.13))
+         s     = minus(x.10, multp(x.11, h3(x.8, x.12, x.13)))
+         z     = x.12
+    
+     24. e     = inv((x.9*x.10))
+         pka   = x.8^x.9
+         s     = s.11
+         z     = calcR(multp('g'^s.11, x.8^inv(x.10)))
+    
+     25. e     = inv((x.9*x.10))
+         pka   = x.8^x.9
+         s     = one
+         z     = calcR(multp('g', x.8^inv(x.10)))
+    
+     26. e     = inv((x.9*x.10))
+         pka   = x.8^(x.10*x.11)
+         s     = s.12
+         z     = calcR(multp('g'^s.12, x.8^(x.11*inv(x.9))))
+    
+     27. e     = inv((x.9*x.10))
+         pka   = x.8^(x.10*x.11)
+         s     = one
+         z     = calcR(multp('g', x.8^(x.11*inv(x.9))))
+    
+     28. e     = inv((x.10*x.11))
+         pka   = x.8^(x.11*x.12*inv(x.9))
+         s     = s.13
+         z     = calcR(multp('g'^s.13, x.8^(x.12*inv((x.9*x.10)))))
+    
+     29. e     = inv((x.10*x.11))
+         pka   = x.8^(x.11*x.12*inv(x.9))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.12*inv((x.9*x.10)))))
+    
+     30. e     = inv((x.10*x.11))
+         pka   = x.8^(x.11*inv(x.9))
+         s     = s.12
+         z     = calcR(multp('g'^s.12, x.8^inv((x.9*x.10))))
+    
+     31. e     = inv((x.10*x.11))
+         pka   = x.8^(x.11*inv(x.9))
+         s     = one
+         z     = calcR(multp('g', x.8^inv((x.9*x.10))))
+    
+     32. e     = one
+         pka   = pka.8
+         s     = s.8
+         z     = calcR(multp('g'^s.8, pka.8))
+    
+     33. e     = one
+         pka   = pka.8
+         s     = one
+         z     = calcR(multp('g', pka.8))
+    
+     34. e     = one
+         pka   = pk(x.10)^h3(x.8, x.11, x.12)
+         s     = minus(x.9, multp(x.10, h3(x.8, x.11, x.12)))
+         z     = x.11
+    
+     35. e     = (x.9*x.10)
+         pka   = x.8^inv(x.9)
+         s     = s.11
+         z     = calcR(multp('g'^s.11, x.8^x.10))
+    
+     36. e     = (x.9*x.10)
+         pka   = x.8^inv(x.9)
+         s     = one
+         z     = calcR(multp('g', x.8^x.10))
+    
+     37. e     = (x.9*x.10)
+         pka   = x.8^inv((x.10*x.11))
+         s     = s.12
+         z     = calcR(multp('g'^s.12, x.8^(x.9*inv(x.11))))
+    
+     38. e     = (x.9*x.10)
+         pka   = x.8^inv((x.10*x.11))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.9*inv(x.11))))
+    
+     39. e     = (x.9*x.10)
+         pka   = x.8^(x.11*inv(x.9))
+         s     = s.12
+         z     = calcR(multp('g'^s.12, x.8^(x.10*x.11)))
+    
+     40. e     = (x.9*x.10)
+         pka   = x.8^(x.11*inv(x.9))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.10*x.11)))
+    
+     41. e     = (x.9*x.10)
+         pka   = x.8^(x.12*inv((x.10*x.11)))
+         s     = s.13
+         z     = calcR(multp('g'^s.13, x.8^(x.9*x.12*inv(x.11))))
+    
+     42. e     = (x.9*x.10)
+         pka   = x.8^(x.12*inv((x.10*x.11)))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.9*x.12*inv(x.11))))
+    
+     43. e     = (x.9*x.10*inv((x.11*x.12)))
+         pka   = x.8^(x.12*x.13*inv(x.9))
+         s     = s.14
+         z     = calcR(multp('g'^s.14, x.8^(x.10*x.13*inv(x.11))))
+    
+     44. e     = (x.9*x.10*inv((x.11*x.12)))
+         pka   = x.8^(x.12*x.13*inv(x.9))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.10*x.13*inv(x.11))))
+    
+     45. e     = (x.9*x.10*inv((x.11*x.12)))
+         pka   = x.8^(x.12*x.14*inv((x.10*x.13)))
+         s     = s.15
+         z     = calcR(multp('g'^s.15, x.8^(x.9*x.14*inv((x.11*x.13)))))
+    
+     46. e     = (x.9*x.10*inv((x.11*x.12)))
+         pka   = x.8^(x.12*x.14*inv((x.10*x.13)))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.9*x.14*inv((x.11*x.13)))))
+    
+     47. e     = (x.9*x.10*inv((x.11*x.12)))
+         pka   = x.8^(x.12*inv(x.9))
+         s     = s.13
+         z     = calcR(multp('g'^s.13, x.8^(x.10*inv(x.11))))
+    
+     48. e     = (x.9*x.10*inv((x.11*x.12)))
+         pka   = x.8^(x.12*inv(x.9))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.10*inv(x.11))))
+    
+     49. e     = (x.9*x.10*inv((x.11*x.12)))
+         pka   = x.8^(x.12*inv((x.10*x.13)))
+         s     = s.14
+         z     = calcR(multp('g'^s.14, x.8^(x.9*inv((x.11*x.13)))))
+    
+     50. e     = (x.9*x.10*inv((x.11*x.12)))
+         pka   = x.8^(x.12*inv((x.10*x.13)))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.9*inv((x.11*x.13)))))
+    
+     51. e     = (x.9*h3(x.8, x.12, x.13))
+         pka   = pk(x.11)^inv(x.9)
+         s     = minus(x.10, multp(x.11, h3(x.8, x.12, x.13)))
+         z     = x.12
+    
+     52. e     = (x.9*inv((x.10*x.11)))
+         pka   = x.8^(x.11*x.12)
+         s     = s.13
+         z     = calcR(multp('g'^s.13, x.8^(x.9*x.12*inv(x.10))))
+    
+     53. e     = (x.9*inv((x.10*x.11)))
+         pka   = x.8^(x.11*x.12)
+         s     = one
+         z     = calcR(multp('g', x.8^(x.9*x.12*inv(x.10))))
+    
+     54. e     = (x.9*inv((x.10*x.11)))
+         pka   = x.8^(x.11*x.12*inv(x.9))
+         s     = s.13
+         z     = calcR(multp('g'^s.13, x.8^(x.12*inv(x.10))))
+    
+     55. e     = (x.9*inv((x.10*x.11)))
+         pka   = x.8^(x.11*x.12*inv(x.9))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.12*inv(x.10))))
+    
+     56. e     = (x.9*inv((x.10*x.11)))
+         pka   = x.8^(x.11*x.13*inv((x.9*x.12)))
+         s     = s.14
+         z     = calcR(multp('g'^s.14, x.8^(x.13*inv((x.10*x.12)))))
+    
+     57. e     = (x.9*inv((x.10*x.11)))
+         pka   = x.8^(x.11*x.13*inv((x.9*x.12)))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.13*inv((x.10*x.12)))))
+    
+     58. e     = (x.9*inv((x.10*x.11)))
+         pka   = x.8^(x.11*inv(x.9))
+         s     = s.12
+         z     = calcR(multp('g'^s.12, x.8^inv(x.10)))
+    
+     59. e     = (x.9*inv((x.10*x.11)))
+         pka   = x.8^(x.11*inv(x.9))
+         s     = one
+         z     = calcR(multp('g', x.8^inv(x.10)))
+    
+     60. e     = (x.9*inv((x.10*x.11)))
+         pka   = x.8^(x.11*inv((x.9*x.12)))
+         s     = s.13
+         z     = calcR(multp('g'^s.13, x.8^inv((x.10*x.12))))
+    
+     61. e     = (x.9*inv((x.10*x.11)))
+         pka   = x.8^(x.11*inv((x.9*x.12)))
+         s     = one
+         z     = calcR(multp('g', x.8^inv((x.10*x.12))))
+    
+     62. e     = (x.10*x.11*inv(x.9))
+         pka   = x.8^inv((x.11*x.12))
+         s     = s.13
+         z     = calcR(multp('g'^s.13, x.8^(x.10*inv((x.9*x.12)))))
+    
+     63. e     = (x.10*x.11*inv(x.9))
+         pka   = x.8^inv((x.11*x.12))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.10*inv((x.9*x.12)))))
+    
+     64. e     = (x.10*x.11*inv(x.9))
+         pka   = x.8^(x.9*x.12*inv(x.10))
+         s     = s.13
+         z     = calcR(multp('g'^s.13, x.8^(x.11*x.12)))
+    
+     65. e     = (x.10*x.11*inv(x.9))
+         pka   = x.8^(x.9*x.12*inv(x.10))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.11*x.12)))
+    
+     66. e     = (x.10*x.11*inv(x.9))
+         pka   = x.8^(x.9*x.13*inv((x.11*x.12)))
+         s     = s.14
+         z     = calcR(multp('g'^s.14, x.8^(x.10*x.13*inv(x.12))))
+    
+     67. e     = (x.10*x.11*inv(x.9))
+         pka   = x.8^(x.9*x.13*inv((x.11*x.12)))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.10*x.13*inv(x.12))))
+    
+     68. e     = (x.10*x.11*inv(x.9))
+         pka   = x.8^(x.9*inv(x.10))
+         s     = s.12
+         z     = calcR(multp('g'^s.12, x.8^x.11))
+    
+     69. e     = (x.10*x.11*inv(x.9))
+         pka   = x.8^(x.9*inv(x.10))
+         s     = one
+         z     = calcR(multp('g', x.8^x.11))
+    
+     70. e     = (x.10*x.11*inv(x.9))
+         pka   = x.8^(x.9*inv((x.11*x.12)))
+         s     = s.13
+         z     = calcR(multp('g'^s.13, x.8^(x.10*inv(x.12))))
+    
+     71. e     = (x.10*x.11*inv(x.9))
+         pka   = x.8^(x.9*inv((x.11*x.12)))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.10*inv(x.12))))
+    
+     72. e     = (x.10*x.11*inv(x.9))
+         pka   = x.8^(x.13*inv((x.11*x.12)))
+         s     = s.14
+         z     = calcR(multp('g'^s.14, x.8^(x.10*x.13*inv((x.9*x.12)))))
+    
+     73. e     = (x.10*x.11*inv(x.9))
+         pka   = x.8^(x.13*inv((x.11*x.12)))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.10*x.13*inv((x.9*x.12)))))
+    
+     74. e     = (x.10*h3(x.8, x.13, x.14)*inv(x.9))
+         pka   = pk(x.12)^(x.9*inv(x.10))
+         s     = minus(x.11, multp(x.12, h3(x.8, x.13, x.14)))
+         z     = x.13
+    
+     75. e     = (x.10*inv(x.9))
+         pka   = x.8^x.9
+         s     = s.11
+         z     = calcR(multp('g'^s.11, x.8^x.10))
+    
+     76. e     = (x.10*inv(x.9))
+         pka   = x.8^x.9
+         s     = one
+         z     = calcR(multp('g', x.8^x.10))
+    
+     77. e     = (x.10*inv(x.9))
+         pka   = x.8^inv((x.10*x.11))
+         s     = s.12
+         z     = calcR(multp('g'^s.12, x.8^inv((x.9*x.11))))
+    
+     78. e     = (x.10*inv(x.9))
+         pka   = x.8^inv((x.10*x.11))
+         s     = one
+         z     = calcR(multp('g', x.8^inv((x.9*x.11))))
+    
+     79. e     = (x.10*inv(x.9))
+         pka   = x.8^(x.9*x.11)
+         s     = s.12
+         z     = calcR(multp('g'^s.12, x.8^(x.10*x.11)))
+    
+     80. e     = (x.10*inv(x.9))
+         pka   = x.8^(x.9*x.11)
+         s     = one
+         z     = calcR(multp('g', x.8^(x.10*x.11)))
+    
+     81. e     = (x.10*inv(x.9))
+         pka   = x.8^(x.9*x.11*inv(x.10))
+         s     = s.12
+         z     = calcR(multp('g'^s.12, x.8^x.11))
+    
+     82. e     = (x.10*inv(x.9))
+         pka   = x.8^(x.9*x.11*inv(x.10))
+         s     = one
+         z     = calcR(multp('g', x.8^x.11))
+    
+     83. e     = (x.10*inv(x.9))
+         pka   = x.8^(x.9*x.12*inv((x.10*x.11)))
+         s     = s.13
+         z     = calcR(multp('g'^s.13, x.8^(x.12*inv(x.11))))
+    
+     84. e     = (x.10*inv(x.9))
+         pka   = x.8^(x.9*x.12*inv((x.10*x.11)))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.12*inv(x.11))))
+    
+     85. e     = (x.10*inv(x.9))
+         pka   = x.8^(x.9*inv(x.10))
+         s     = s.11
+         z     = calcR(multp('g'^s.11, x.8))
+    
+     86. e     = (x.10*inv(x.9))
+         pka   = x.8^(x.9*inv(x.10))
+         s     = one
+         z     = calcR(multp('g', x.8))
+    
+     87. e     = (x.10*inv(x.9))
+         pka   = x.8^(x.9*inv((x.10*x.11)))
+         s     = s.12
+         z     = calcR(multp('g'^s.12, x.8^inv(x.11)))
+    
+     88. e     = (x.10*inv(x.9))
+         pka   = x.8^(x.9*inv((x.10*x.11)))
+         s     = one
+         z     = calcR(multp('g', x.8^inv(x.11)))
+    
+     89. e     = (x.10*inv(x.9))
+         pka   = x.8^(x.12*inv((x.10*x.11)))
+         s     = s.13
+         z     = calcR(multp('g'^s.13, x.8^(x.12*inv((x.9*x.11)))))
+    
+     90. e     = (x.10*inv(x.9))
+         pka   = x.8^(x.12*inv((x.10*x.11)))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.12*inv((x.9*x.11)))))
+    
+     91. e     = (x.10*inv(x.9))
+         pka   = pk(x.12)^(x.9*h3(x.8, x.13, x.14)*inv(x.10))
+         s     = minus(x.11, multp(x.12, h3(x.8, x.13, x.14)))
+         z     = x.13
+    
+     92. e     = (x.10*inv((x.9*x.11)))
+         pka   = x.8^x.9
+         s     = s.12
+         z     = calcR(multp('g'^s.12, x.8^(x.10*inv(x.11))))
+    
+     93. e     = (x.10*inv((x.9*x.11)))
+         pka   = x.8^x.9
+         s     = one
+         z     = calcR(multp('g', x.8^(x.10*inv(x.11))))
+    
+     94. e     = (x.10*inv((x.11*x.12)))
+         pka   = x.8^(x.12*x.13*inv(x.9))
+         s     = s.14
+         z     = calcR(multp('g'^s.14, x.8^(x.10*x.13*inv((x.9*x.11)))))
+    
+     95. e     = (x.10*inv((x.11*x.12)))
+         pka   = x.8^(x.12*x.13*inv(x.9))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.10*x.13*inv((x.9*x.11)))))
+    
+     96. e     = (x.10*inv((x.11*x.12)))
+         pka   = x.8^(x.12*inv(x.9))
+         s     = s.13
+         z     = calcR(multp('g'^s.13, x.8^(x.10*inv((x.9*x.11)))))
+    
+     97. e     = (x.10*inv((x.11*x.12)))
+         pka   = x.8^(x.12*inv(x.9))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.10*inv((x.9*x.11)))))
+    
+     98. e     = (x.11*inv(x.9))
+         pka   = x.8^(x.12*inv(x.10))
+         s     = s.13
+         z     = calcR(multp('g'^s.13, x.8^(x.11*x.12*inv((x.9*x.10)))))
+    
+     99. e     = (x.11*inv(x.9))
+         pka   = x.8^(x.12*inv(x.10))
+         s     = one
+         z     = calcR(multp('g', x.8^(x.11*x.12*inv((x.9*x.10)))))
+    
+    100. e     = (x.11*inv(x.10))
+         pka   = x.8^inv(x.9)
+         s     = s.12
+         z     = calcR(multp('g'^s.12, x.8^(x.11*inv((x.9*x.10)))))
+    
+    101. e     = (x.11*inv(x.10))
+         pka   = x.8^inv(x.9)
+         s     = one
+         z     = calcR(multp('g', x.8^(x.11*inv((x.9*x.10)))))
+    
+    102. e     = (h3(x.8, x.12, x.13)*inv(x.9))
+         pka   = pk(x.11)^x.9
+         s     = minus(x.10, multp(x.11, h3(x.8, x.12, x.13)))
+         z     = x.12
+  */
+
+lemma functional_correctness:
+  exists-trace
+  "∃ A B m #i #j.
+    ((((Signed( m, A ) @ #i) ∧ (Verified( m, A, B ) @ #j)) ∧
+      (#i < #j)) ∧
+     (¬(A = B))) ∧
+    (¬(∃ C #k. LtkReveal( C ) @ #k))"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ A B m #i #j.
+  (Signed( m, A ) @ #i) ∧ (Verified( m, A, B ) @ #j)
+ ∧
+  (#i < #j) ∧ (¬(A = B)) ∧ (∀ C #k. (LtkReveal( C ) @ #k) ⇒ ⊥)"
+*/
+simplify
+solve( !Ltk( $A, ~x ) ▶₁ #i )
+  case Generate_DH_key_pair
+  solve( !Pk( $A, pka ) ▶₁ #j )
+    case Generate_DH_key_pair
+    solve( !KU( h3($B.1, z, ~m) ) @ #vk.3 )
+      case sign_message
+      solve( !KU( minus(x.1, multp(~x.2, h3($B, 'g'^~k, ~m))) ) @ #vk.4 )
+        case sign_message
+        solve( !KU( ~m ) @ #vk.4 )
+          case sign_message
+          SOLVED // trace found
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma unforgeability:
+  all-traces
+  "∀ A B m #i.
+    (Verified( m, A, B ) @ #i) ⇒
+    ((∃ #j. (Signed( m, A ) @ #j) ∧ (#j < #i)) ∨
+     (∃ #k. (LtkReveal( A ) @ #k) ∧ (#k < #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ A B m #i.
+  (Verified( m, A, B ) @ #i)
+ ∧
+  (∀ #j. (Signed( m, A ) @ #j) ⇒ ¬(#j < #i)) ∧
+  (∀ #k. (LtkReveal( A ) @ #k) ⇒ ¬(#k < #i))"
+*/
+simplify
+solve( !Pk( $A, pka ) ▶₁ #i )
+  case Generate_DH_key_pair
+  solve( !KU( minus(x, multp(~x.1, h3($B, z, m))) ) @ #vk.4 )
+    case c_minus
+    solve( !KU( multp(~x.1, h3($B, z, m)) ) @ #vk.6 )
+      case c_multp
+      solve( !KU( ~x.1 ) @ #vk.7 )
+        case Reveal_ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  next
+    case sign_message
+    by contradiction /* from formulas */
+  qed
+qed
+
+lemma aliveness:
+  all-traces
+  "∀ a b n #i.
+    (Commit( a, b, n ) @ #i) ⇒
+    ((∃ #j. Create( b ) @ #j) ∨ (∃ C #r. LtkReveal( C ) @ #r))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b n #i.
+  (Commit( a, b, n ) @ #i)
+ ∧
+  (∀ #j. (Create( b ) @ #j) ⇒ ⊥) ∧
+  (∀ C #r. (LtkReveal( C ) @ #r) ⇒ ⊥)"
+*/
+simplify
+solve( !Pk( $A, pka ) ▶₁ #i )
+  case Generate_DH_key_pair
+  solve( !KU( minus(x, multp(~x.1, h3($B, z, n))) ) @ #vk.4 )
+    case c_minus
+    solve( !KU( multp(~x.1, h3($B, z, n)) ) @ #vk.6 )
+      case c_multp
+      solve( !KU( ~x.1 ) @ #vk.7 )
+        case Reveal_ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  next
+    case sign_message
+    by contradiction /* from formulas */
+  qed
+qed
+
+lemma weak_agreement:
+  all-traces
+  "∀ a b n #i.
+    (Commit( a, b, n ) @ #i) ⇒
+    ((∃ n2 #j. Running( b, a, n2 ) @ #j) ∨
+     (∃ C #r. LtkReveal( C ) @ #r))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b n #i.
+  (Commit( a, b, n ) @ #i)
+ ∧
+  (∀ n2 #j. (Running( b, a, n2 ) @ #j) ⇒ ⊥) ∧
+  (∀ C #r. (LtkReveal( C ) @ #r) ⇒ ⊥)"
+*/
+simplify
+solve( !Pk( $A, pka ) ▶₁ #i )
+  case Generate_DH_key_pair
+  solve( !KU( minus(x, multp(~x.1, h3($B, z, n))) ) @ #vk.4 )
+    case c_minus
+    solve( !KU( multp(~x.1, h3($B, z, n)) ) @ #vk.6 )
+      case c_multp
+      solve( !KU( ~x.1 ) @ #vk.7 )
+        case Reveal_ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  next
+    case sign_message
+    by contradiction /* from formulas */
+  qed
+qed
+
+/* All well-formedness checks were successful. */
+
+end
