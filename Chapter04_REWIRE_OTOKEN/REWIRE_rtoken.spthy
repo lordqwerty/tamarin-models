@@ -1,0 +1,401 @@
+/*
+ *  Authors:    Jorden Whitefield, Liqun Chen, Frank Kargl, Andrew Paverd,
+ *              Steve Schneider, Helen Treharne, and Stephan Wesemeyer
+ *  References
+ *              REWIRE Revocation Without Resolution A Privacy-Friendly
+ *              Revocation Mechanism for Vehicular Ad-Hoc Networks
+ *              by David Forster, Hans Lohr, Jan Zibuschka, and Frank Kargl
+ *
+ *  Purpose: Formal Model of R-Token revocation REWIRE variant
+ *  Results: Failure to meet authentication properties. Meets lemmas G1, G5 and G6
+ *
+ *  Model Name: REWIRE_rtoken.spthy
+ *  Status: STABLE
+ */
+
+theory REWIRE_RTOKEN
+begin
+
+builtins:   asymmetric-encryption, signing
+
+
+/* Restrictions */
+
+
+// Under perfect cryptography assumption all checks must succeed
+restriction equality_checks_succeed:
+"All x y #i. Eq( x, y ) @ i ==> x = y"
+
+
+/* Key initialisation restrictions */
+
+
+// Restricts the RA key setup event to occur only once
+restriction single_RA:
+"All #i #j. SetupRevAuthKeys( ) @ i & SetupRevAuthKeys(  ) @ j ==> #i = #j"
+
+
+// Restricts a Vj asymmetric key setup event to occur only once
+restriction single_vj_sk_setup:
+"All id #i #j. SetupVehicleSK( id ) @ i & SetupVehicleSK( id ) @ j ==> #i = #j"
+
+
+// Restricts a Vj pseudonym key setup event to occur only once
+restriction single_psi_init:
+"All id key #i #j. InitPSiKey( id, key ) @ i & InitPSiKey( id, key ) @ j ==> #i = #j"
+
+
+// Restricts a Vj pseudonym certificate setup event to occur only once
+restriction single_init_event:
+"All id #i #j . InitVjPseudonym( id ) @ #i & InitVjPseudonym( id ) @ #j ==> #i = #j"
+
+
+/* Restrictions representing non key leak */
+
+
+// The RA is a trusted third party and the key cannot be leaked
+restriction no_ra_leak:
+"not ( Ex id key #i #j . SetupRAKeys( id, key ) @ #i & K( key ) @ #j )"
+
+
+// PROTOCOL START ----------------------------------------------------
+
+
+/* Key Setup */
+
+
+// Establish the long term key pair of the Revocation Authority (RA)
+rule RA_SETUP:
+  let
+    PK_RA = pk( ~SK_RA )
+  in
+    [ Fr( ~SK_RA )  ]
+  --[
+        SetupRevAuthKeys(  )
+      , SetupRAKeys( $RA, ~SK_RA )
+    ]->
+    [
+        !RevAuthSK( $RA, ~SK_RA )
+      , !RevAuthPK( $RA, PK_RA )
+      , Out( PK_RA )
+    ]
+
+
+// Setup the asymmetric key pair of $Vj
+rule SETUP_VEHICLE_KEY_PAIR:
+  let
+    PK_Vj = pk( ~SK_Vj )
+  in
+    [ Fr( ~SK_Vj ) ]
+  --[
+        SetupVehicleSK( $Vj )
+      , VehicleSetup( $Vj, ~SK_Vj )
+    ]->
+    [
+        !VjSK( $Vj, ~SK_Vj )
+      , !VjPK( $Vj, PK_Vj )
+    ]
+
+
+// Reveal the asymmetric key pair of $Vj
+rule REVEAL_VEHICLE_SK:
+    [ !VjSK( $Vj, SK_Vj ) ]
+  --[
+        VehicleCompromised( $Vj, SK_Vj )
+      , RevealSK( $Vj )
+    ]->
+    [ Out( SK_Vj ) ]
+
+
+// Asymmetric pseudonym key pair for Vj
+rule SETUP_PSI_KEY:
+    [ Fr( ~SK_PSi ) ]
+  --[ InitPSiKey( $Vj, ~SK_PSi ) ]->
+    [ !VehiclePSi( $Vj, ~SK_PSi ) ]
+
+
+// Reveal asymmetric pseudonym key pair for Vj
+rule REVEAL_PSI_KEY:
+    [ !VehiclePSi( $Vj, SK_PSi )  ]
+  --[ VjSKPSiReveal( $Vj, SK_PSi ) ]->
+    [ Out( SK_PSi ) ]
+
+
+// Initialises the first pseudonym of Vj
+rule SETUP_VEHICLE_PSEUDONYM:
+  let
+    PK_PSi      = pk( SK_PSi )
+    R           = < $Vj, PK_Vj, ~r >
+    R_Token     = aenc( R, PK_Vj )
+    pseudonym   = < PK_PSi, R_Token >
+  in
+    [
+        !VjSK( $Vj, SK_Vj )
+      , !VjPK( $Vj, PK_Vj )
+      , !VehiclePSi( $Vj, SK_PSi )
+      , Fr( ~r )
+    ]
+  --[ InitVjPseudonym( $Vj ) ]->
+    [
+        !VehiclePseudonym( $Vj, pseudonym )
+      , CanChange( $Vj, pseudonym )
+      , Out( pseudonym )
+    ]
+
+
+// Changes the current pseudonym of Vj
+rule CHANGE_PSEUDONYM:
+  let
+    PK_PSi      = pk( ~SK_PSi )
+    R           = < $Vj, PK_Vj, ~r >
+    R_Token     = aenc( R, PK_Vj )
+    pseudonym   = < PK_PSi, R_Token >
+  in
+    [
+        !VjSK( $Vj, SK_Vj )
+      , !VjPK( $Vj, PK_Vj )
+      , Fr( ~SK_PSi )
+      , Fr( ~r )
+      , CanChange( $Vj, old )
+    ]
+    --[ ChangePseudonymForVehicle( $Vj, old, pseudonym ) ]->
+    [
+        !VehiclePseudonym( $Vj, pseudonym )
+      , CanChange( $Vj, pseudonym )
+      , Out( pseudonym )
+    ]
+
+
+// Creates report to RA, beginning the revocation process
+rule REPORT:
+    [ !VehiclePseudonym( $Vj, pseudonym ) ]
+  --[ Reported( $Vj, pseudonym ) ]->
+    [ Report( pseudonym ) ]
+
+
+/* Revocation Protocol
+ * RA -> Vj : osr-req := {| 'revoke', pseudonym |}PK_RA
+ * Vj       : Verify osr-req, extract R_Token, Attempt decypt R_Token
+                                               If T
+                                                  delete all pseudonyms
+                                               ELSE
+                                                  nothing
+ * Vj -> RA : osr-conf := {| 'confirm', R_Token |}LTK_Vj
+ */
+
+
+rule OSR_REQ_SEND:
+  let
+    R           = < $Vj, PK_Vj, r >
+    R_Token     = aenc( R, PK_Vj )
+    pseudonym   = < PK_PSi, R_Token >
+    osrReq      = < 'revoke', pseudonym, 'reason' >
+    osrReqSig   = sign( osrReq, SK_RA )
+    osrReqMsg   = < $RA, $Vj, osrReq, osrReqSig >
+  in
+    [
+        Report( pseudonym )
+      , !RevAuthSK( $RA, SK_RA )
+    ]
+  --[
+        OsrReqMsgSentTo( $RA, $Vj, R_Token )
+      , Send($RA, osrReqMsg)
+      , Running( $Vj, $RA, osrReqMsg )
+    ]->
+    [
+        AwaitRevokeConfirmation( $RA, $Vj, R_Token, SK_RA )
+      , Out( osrReqMsg )
+    ]
+
+
+rule OSR_REQ_RECV:
+  let
+    R           = < $Vj, PK_Vj, ~r >
+    R_Token     = aenc( R, PK_Vj )
+    pseudonym   = < PK_PSi, R_Token >
+    osrReq      = < 'revoke', pseudonym, 'reason' >
+    osrReqSig   = sign( osrReq, SK_RA )
+    osrReqMsg   = < $RA, $Vj, osrReq, osrReqSig >
+    osrConf     = < $Vj, 'confirm', R_Token >
+    osrConfSig  = sign( osrConf, SK_Vj )
+    osrConfMsg  = < $Vj, $RA, osrConf, osrConfSig >
+  in
+    [
+        In( osrReqMsg )
+      , !RevAuthPK( $RA, PK_RA )
+      , !VjSK( $Vj, SK_Vj )
+      , !VjPK( $Vj, PK_Vj )
+      , CanChange( $Vj, pseudonym )
+    ]
+  --[   Commit( $RA, $Vj, osrReqMsg )
+      , OsrReqMsgRecvBy( $Vj, $RA, R_Token )
+      , Recv( $Vj, osrReqMsg )
+      , Eq( verify( osrReqSig, osrReq, PK_RA ), true )
+      , OsrReqVerified( $Vj, R_Token )
+      , Eq( adec( R_Token, SK_Vj ), R )
+      , DeleteAllPseudonyms( $Vj, SK_Vj, R_Token )
+      , Running( $RA, $Vj, osrConfMsg )
+      , OsrConfSentBy( $Vj, $RA, R_Token )
+    ]->
+    [ Out( osrConfMsg ) ]
+
+
+rule REV_AUTH_OSR_CONF_RECV:
+ let
+    osrConf     = < $Vj, 'confirm', R_Token >
+    osrConfSig  = sign( osrConf, SK_Vj )
+    osrConfMsg  = < $Vj, $RA, osrConf, osrConfSig >
+  in
+    [
+        In( osrConfMsg )
+      , AwaitRevokeConfirmation( $RA, $Vj, R_Token, SK_RA )
+    ]
+--[     Commit( $Vj, $RA, osrConfMsg )
+      , OsrConfAcceptedBy( $RA, $Vj, R_Token )
+    ]->
+    [  ]
+
+
+// PROTOCOL END ------------------------------------------------------
+
+
+/* Functional Correctness Lemmas */
+
+
+/*
+ * Proof Goal G1
+ *    Sanity check of the protocol to ensure correct execution
+ */
+lemma executable:
+exists-trace
+  " /* It should be possible that when an osr-req is sent it's received */
+    Ex id_ra id_vj m t #i #j #k . Send( id_ra, m ) @ i & Recv( id_vj, m ) @ j
+    /* and the OSR-Conf is accepted by the RA */
+    & OsrConfAcceptedBy( id_ra, id_vj, t ) @ k
+    /* such that the OSR-Req is sent, received and then accepted */
+    & i < j
+    & j < k
+  "
+
+
+/*
+ * Proof Goal G2
+ *    This lemma states that if a vehicle Vj changes its pseudonym and a previous
+ *    pseudonym is revoked, it should be possible for the vehicle to create an
+ *    OSR-Conf message
+ */
+lemma revoke_after_change_exists:
+  exists-trace
+  "/* It should be possible that when a report for Vj is made with pseudonym 1 (ps1) */
+  ( Ex id_vj id_ra t ps1 ps2 #i #j #k .
+      Reported( id_vj, ps1 ) @ #i
+      /* and there has been a change of pseudonym from ps1 to ps2 */
+      & ChangePseudonymForVehicle( id_vj, ps1, ps2 ) @ #j
+      /* and an OSR-Conf should be sent after the change occurred */
+      & OsrConfSentBy( id_vj, id_ra, t ) @ #k
+      /* and the report occurred before the change to ps2 */
+      & #i < #j
+      & #j < k
+      /* and the adversary did not perform a asymmetric key reveal on Vj  */
+      & not( Ex k #n. VehicleCompromised( id_vj, k ) @ #n )
+  )
+  "
+
+
+/*
+ * Proof Goal G3
+ *    G3 demonstrates a vehicle's ability to receive and create a confirmation.
+ *    Since G3 is defined over all traces this includes the case where the
+ *    pseudonym has changed.
+ */
+lemma osr_req_received_with_change_all:
+  "/* If there was an OSR-Conf message sent by a vehicle Vj with R-Token t */
+  ( All id_vj id_ra t #i .
+      OsrConfSentBy( id_vj, id_ra, t ) @ #i
+      /* and the adversary did not perform a asymmetric key reveal on Vj */
+      & not( Ex key #k. VehicleCompromised( id_vj, key ) @ #k )
+        /* Then there was an OSR-Req sent to Vj with the R-Token t */
+  ==> ( Ex #a . OsrReqMsgSentTo( id_ra, id_vj, t ) @ #a
+        /* such that a OSR-Req is sent before Vj sends OSR-Conf */
+        & a < i )
+  )
+  "
+
+
+/*
+ * Proof Goal G4
+ *    If a confirmation of a pseudonym revocation is accepted by the RA from a
+ *    vehicle then that vehicle will have accepted and processed a revocation
+ *    request from the RA.
+ */
+lemma revoke_with_change_all:
+  "/* If there was an OSR-Conf accepted by the RA with R-Token t */
+  ( All id_ra id_vj t #i .
+      OsrConfAcceptedBy( id_ra, id_vj, t ) @ i
+      /* and the adversary did not perform a asymmetric key reveal on Vj */
+      & not( Ex key #k. VehicleCompromised( id_vj, key ) @ k )
+        /* Then there was an OSR-Req message received by Vj with t */
+  ==> ( Ex #l . OsrReqMsgRecvBy( id_vj, id_ra, t ) @ l
+        /* such that the OSR-Req is received by Vj before OSR-Conf is received by the RA */
+        & l < i )
+  )
+  "
+
+
+/* Authentication Lemmas */
+
+
+/*
+ * Proof Goal G5
+ *    Weak agreement is a form of authentication which guarantees that when the
+ *    RA completes a run of the protocol it guarantees that it was
+ *    interacting with the Vj who had also been running the protocol.
+ */
+lemma weak_agreement:
+   " /* If there was an RA that accept an OSR-Conf message from a vehicle with R-Token t */
+    All id_vj id_ra t #i.
+        OsrConfAcceptedBy( id_ra, id_vj, t ) @ i
+     /* Then there exists a vehicle with the R-Token t who received the OSR-Req */
+     ==>  ( Ex t2 #j. OsrReqMsgRecvBy( id_vj, id_ra, t2 ) @ j )
+          /* or the adversary perform a asymmetric key reveal on the vehicle */
+          | ( Ex #r. RevealSK( id_vj ) @ r )
+   "
+
+
+/*
+ * Proof Goal G6
+ *    Non-injective agreement guarantees that the RA and vehicle Vj each agree upon
+ *    the completion of a run with each other and that in those runs the contents
+ *    of the received messages correspond to the sent messages.
+ */
+lemma noninjective_agreement:
+  " /* Whenever a vehicle or RA commits to running a session, then */
+    All a b msg #i.
+      Commit( a, b, msg ) @ i
+    /* there is RA / vehicle running a session with the same parameters */
+    ==> ( Ex #j. Running( b, a, msg ) @ j )
+        /* or the adversary perform a asymmetric key reveal on the vehicle */
+        | ( Ex C #r. RevealSK( C ) @ r )
+  "
+
+
+/*
+ * Proof Goal G7
+ *    Non-injective synchronisation is very similar to non-injective agreement
+ *    but additionally requires that the corresponding send and receive messages
+ *    have to be executed in their expected order.
+ */
+lemma noninjective_synchronisation:
+  "/* If there was an RA that accept an OSR-Conf message from a vehicle with R-Token t */
+  ( All id_ra id_vj t #i .
+      OsrConfAcceptedBy( id_ra, id_vj, t ) @ #i
+      /* and the adversary perform a asymmetric key reveal on the vehicle */
+      & not( Ex #q . RevealSK( id_vj ) @ #q )
+      /* Then there exists a vehicle with the R-Token t who received the OSR-Req */
+  ==> ( Ex #l . OsrReqMsgRecvBy( id_vj, id_ra, t ) @ #l
+      /* such that OSR-Req was received before a OSR-Conf is accepted by the RA */
+        & #l < #i ) )
+  "
+
+
+end

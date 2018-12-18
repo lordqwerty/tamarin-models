@@ -1,0 +1,808 @@
+theory REWIRE_OTOKEN begin
+
+// Function signature and definition of the equational theory E
+
+functions: fst/1, pair/2, pk/1, sdec/2, senc/2, sign/2, snd/1,
+           true/0, verify/3
+equations:
+    fst(<x.1, x.2>) = x.1,
+    sdec(senc(x.1, x.2), x.2) = x.1,
+    snd(<x.1, x.2>) = x.2,
+    verify(sign(x.1, x.2), x.1, pk(x.2)) = true
+
+restriction equality_checks_succeed:
+  "∀ x y #i. (Eq( x, y ) @ #i) ⇒ (x = y)"
+  // safety formula
+
+restriction single_RA:
+  "∀ #i #j.
+    ((SetupRevAuthKeys( ) @ #i) ∧ (SetupRevAuthKeys( ) @ #j)) ⇒
+    (#i = #j)"
+  // safety formula
+
+restriction single_Ltk_setup:
+  "∀ id #i #j.
+    ((SetupVehicleLtk( id ) @ #i) ∧ (SetupVehicleLtk( id ) @ #j)) ⇒
+    (#i = #j)"
+  // safety formula
+
+restriction single_psi_init:
+  "∀ id key #i #j.
+    ((InitPSiKey( id, key ) @ #i) ∧ (InitPSiKey( id, key ) @ #j)) ⇒
+    (#i = #j)"
+  // safety formula
+
+restriction single_okey_init:
+  "∀ id key #i #j.
+    ((InitOKey( id, key ) @ #i) ∧ (InitOKey( id, key ) @ #j)) ⇒
+    (#i = #j)"
+  // safety formula
+
+restriction single_init_event:
+  "∀ id #i #j.
+    ((InitVjPseudonym( id ) @ #i) ∧ (InitVjPseudonym( id ) @ #j)) ⇒
+    (#i = #j)"
+  // safety formula
+
+restriction no_ra_leak:
+  "¬(∃ id key #i #j.
+      (SetupRAKeys( id, key ) @ #i) ∧ (K( key ) @ #j))"
+  // safety formula
+
+rule (modulo E) RA_SETUP:
+   [ Fr( ~SK_RA ) ]
+  --[ SetupRevAuthKeys( ), SetupRAKeys( $RA, ~SK_RA ) ]->
+   [
+   !RevAuthSK( $RA, ~SK_RA ), !RevAuthPK( $RA, pk(~SK_RA) ),
+   Out( pk(~SK_RA) )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) SETUP_VEHICLE_LTK:
+   [ Fr( ~Ltk ) ]
+  --[ SetupVehicleLtk( $Vj ), VehicleSetup( $Vj, ~Ltk ) ]->
+   [ !Ltk( $Vj, ~Ltk ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) REVEAL_VEHICLE_LTK:
+   [ !Ltk( $Vj, Ltk ) ]
+  --[ VehicleCompromised( $Vj, Ltk ), RevealLtk( $Vj ) ]->
+   [ Out( Ltk ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) SETUP_PSI_KEY:
+   [ Fr( ~SK_PSi ) ]
+  --[ InitPSiKey( $Vj, ~SK_PSi ) ]->
+   [ !VehiclePSi( $Vj, ~SK_PSi ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) REVEAL_PSI_KEY:
+   [ !VehiclePSi( $Vj, SK_PSi ) ]
+  --[ VjSKPSiReveal( $Vj, SK_PSi ) ]->
+   [ Out( SK_PSi ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) SETUP_OKEY:
+   [ Fr( ~SK_O ) ]
+  --[ InitOKey( $Vj, ~SK_O ) ]->
+   [ !VehicleOKey( $Vj, ~SK_O ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) REVEAL_VEHICLE_O_KEY:
+   [ !VehicleOKey( $Vj, SK_O ) ]
+  --[ VjOReveal( $Vj, SK_O ), RevealO( $Vj ) ]->
+   [ Out( SK_O ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) SETUP_VEHICLE_PSEUDONYM_INIT:
+   [
+   !Ltk( $Vj, Ltk ), !VehiclePSi( $Vj, SK_PSi ),
+   !VehicleOKey( $Vj, SK_O )
+   ]
+  --[ InitVjPseudonym( $Vj ) ]->
+   [
+   !VehiclePseudonym( $Vj,
+                      <$Vj, pk(SK_PSi), pk(SK_O), senc(SK_O, Ltk)>
+   ),
+   CanChange( $Vj, <$Vj, pk(SK_PSi), pk(SK_O), senc(SK_O, Ltk)> ),
+   Out( <$Vj, pk(SK_PSi), pk(SK_O), senc(SK_O, Ltk)> )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) CHANGE_PSEUDONYM:
+   [
+   !Ltk( $Vj, Ltk ), Fr( ~SK_PSi ), Fr( ~SK_O ), CanChange( $Vj, old )
+   ]
+  --[
+  ChangePseudonymForVehicle( $Vj, old,
+                             <$Vj, pk(~SK_PSi), pk(~SK_O), senc(~SK_O, Ltk)>
+  )
+  ]->
+   [
+   !VehiclePseudonym( $Vj,
+                      <$Vj, pk(~SK_PSi), pk(~SK_O), senc(~SK_O, Ltk)>
+   ),
+   CanChange( $Vj, <$Vj, pk(~SK_PSi), pk(~SK_O), senc(~SK_O, Ltk)> ),
+   Out( <$Vj, pk(~SK_PSi), pk(~SK_O), senc(~SK_O, Ltk)> )
+   ]
+
+  // loop breaker: [3]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) REPORT:
+   [ !VehiclePseudonym( $Vj, pseudonym ) ]
+  --[ Reported( $Vj, pseudonym ), HasReport( $Vj ) ]->
+   [ Report( pseudonym ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) OSR_REQ_SEND:
+   [ Report( <$Vj, PK_PSi, PK_O, O_Token> ), !RevAuthSK( $RA, SK_RA )
+   ]
+  --[
+  OsrReqMsgSentTo( $RA, $Vj, O_Token ),
+  Send( $RA,
+        <$RA, $Vj, <'revoke', <$Vj, PK_PSi, PK_O, O_Token>, 'reason'>, 
+         sign(<'revoke', <$Vj, PK_PSi, PK_O, O_Token>, 'reason'>, SK_RA)>
+  ),
+  Running( $Vj, $RA,
+           <$RA, $Vj, <'revoke', <$Vj, PK_PSi, PK_O, O_Token>, 'reason'>, 
+            sign(<'revoke', <$Vj, PK_PSi, PK_O, O_Token>, 'reason'>, SK_RA)>
+  )
+  ]->
+   [
+   AwaitRevokeConfirmation( $RA, $Vj, PK_O, SK_RA ),
+   Out( <$RA, $Vj, 
+         <'revoke', <$Vj, PK_PSi, PK_O, O_Token>, 'reason'>, 
+         sign(<'revoke', <$Vj, PK_PSi, PK_O, O_Token>, 'reason'>, SK_RA)>
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) OSR_REQ_RECV:
+   [
+   In( <$RA, $Vj, 
+        <'revoke', <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)>, 'reason'>, 
+        sign(<'revoke', <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)>, 'reason'>,
+             SK_RA)
+       >
+   ),
+   !RevAuthPK( $RA, PK_RA ), !Ltk( $Vj, Ltk ),
+   CanChange( $Vj, <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)> )
+   ]
+  --[
+  Commit( $RA, $Vj,
+          <$RA, $Vj, 
+           <'revoke', <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)>, 'reason'>, 
+           sign(<'revoke', <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)>, 'reason'>,
+                SK_RA)
+          >
+  ),
+  OsrReqMsgRecvBy( $Vj, $RA, senc(SK_O, Ltk) ),
+  Recv( $Vj,
+        <$RA, $Vj, 
+         <'revoke', <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)>, 'reason'>, 
+         sign(<'revoke', <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)>, 'reason'>,
+              SK_RA)
+        >
+  ),
+  Eq( verify(sign(<'revoke', <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)>, 
+                   'reason'>,
+                  SK_RA),
+             <'revoke', <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)>, 'reason'>, PK_RA),
+      true
+  ),
+  OsrReqVerified( $Vj, senc(SK_O, Ltk) ),
+  Eq( sdec(senc(SK_O, Ltk), Ltk), SK_O ),
+  DeleteAllPseudonyms( $Vj, SK_O, senc(SK_O, Ltk) ),
+  Running( $RA, $Vj,
+           <$Vj, $RA, <$Vj, 'confirm', senc(SK_O, Ltk)>, 
+            sign(<$Vj, 'confirm', senc(SK_O, Ltk)>, SK_O)>
+  ),
+  OsrConfSentBy( $Vj, $RA, senc(SK_O, Ltk) )
+  ]->
+   [
+   Out( <$Vj, $RA, <$Vj, 'confirm', senc(SK_O, Ltk)>, 
+         sign(<$Vj, 'confirm', senc(SK_O, Ltk)>, SK_O)>
+   )
+   ]
+
+  /*
+  rule (modulo AC) OSR_REQ_RECV:
+     [
+     In( <$RA, $Vj, 
+          <'revoke', <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)>, 'reason'>, 
+          sign(<'revoke', <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)>, 'reason'>,
+               SK_RA)
+         >
+     ),
+     !RevAuthPK( $RA, PK_RA ), !Ltk( $Vj, Ltk ),
+     CanChange( $Vj, <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)> )
+     ]
+    --[
+    Commit( $RA, $Vj,
+            <$RA, $Vj, 
+             <'revoke', <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)>, 'reason'>, 
+             sign(<'revoke', <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)>, 'reason'>,
+                  SK_RA)
+            >
+    ),
+    OsrReqMsgRecvBy( $Vj, $RA, senc(SK_O, Ltk) ),
+    Recv( $Vj,
+          <$RA, $Vj, 
+           <'revoke', <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)>, 'reason'>, 
+           sign(<'revoke', <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)>, 'reason'>,
+                SK_RA)
+          >
+    ),
+    Eq( z, true ), OsrReqVerified( $Vj, senc(SK_O, Ltk) ),
+    Eq( SK_O, SK_O ),
+    DeleteAllPseudonyms( $Vj, SK_O, senc(SK_O, Ltk) ),
+    Running( $RA, $Vj,
+             <$Vj, $RA, <$Vj, 'confirm', senc(SK_O, Ltk)>, 
+              sign(<$Vj, 'confirm', senc(SK_O, Ltk)>, SK_O)>
+    ),
+    OsrConfSentBy( $Vj, $RA, senc(SK_O, Ltk) )
+    ]->
+     [
+     Out( <$Vj, $RA, <$Vj, 'confirm', senc(SK_O, Ltk)>, 
+           sign(<$Vj, 'confirm', senc(SK_O, Ltk)>, SK_O)>
+     )
+     ]
+    variants (modulo AC)
+    1. $Vj   = $Vj.20
+       Ltk   = Ltk.21
+       PK_O  = PK_O.22
+       PK_PSi
+             = PK_PSi.23
+       PK_RA = PK_RA.24
+       SK_O  = SK_O.25
+       SK_RA = SK_RA.26
+       z     = verify(sign(<'revoke', 
+                            <$Vj.20, PK_PSi.23, PK_O.22, senc(SK_O.25, Ltk.21)>, 'reason'>,
+                           SK_RA.26),
+                      <'revoke', <$Vj.20, PK_PSi.23, PK_O.22, senc(SK_O.25, Ltk.21)>, 
+                       'reason'>,
+                      PK_RA.24)
+    
+    2. PK_RA = pk(SK_RA.14)
+       SK_RA = SK_RA.14
+       z     = true
+  */
+
+rule (modulo E) REV_AUTH_OSR_CONF_RECV:
+   [
+   In( <$Vj, $RA, <$Vj, 'confirm', O_Token>, 
+        sign(<$Vj, 'confirm', O_Token>, SK_O)>
+   ),
+   AwaitRevokeConfirmation( $RA, $Vj, PK_O, SK_RA )
+   ]
+  --[
+  Commit( $Vj, $RA,
+          <$Vj, $RA, <$Vj, 'confirm', O_Token>, 
+           sign(<$Vj, 'confirm', O_Token>, SK_O)>
+  ),
+  Eq( verify(sign(<$Vj, 'confirm', O_Token>, SK_O),
+             <$Vj, 'confirm', O_Token>, PK_O),
+      true
+  ),
+  OsrConfAcceptedBy( $RA, $Vj, O_Token )
+  ]->
+   [ ]
+
+  /*
+  rule (modulo AC) REV_AUTH_OSR_CONF_RECV:
+     [
+     In( <$Vj, $RA, <$Vj, 'confirm', O_Token>, 
+          sign(<$Vj, 'confirm', O_Token>, SK_O)>
+     ),
+     AwaitRevokeConfirmation( $RA, $Vj, PK_O, SK_RA )
+     ]
+    --[
+    Commit( $Vj, $RA,
+            <$Vj, $RA, <$Vj, 'confirm', O_Token>, 
+             sign(<$Vj, 'confirm', O_Token>, SK_O)>
+    ),
+    Eq( z, true ), OsrConfAcceptedBy( $RA, $Vj, O_Token )
+    ]->
+     [ ]
+    variants (modulo AC)
+    1. $Vj   = $Vj.10
+       O_Token
+             = O_Token.11
+       PK_O  = PK_O.12
+       SK_O  = SK_O.13
+       z     = verify(sign(<$Vj.10, 'confirm', O_Token.11>, SK_O.13),
+                      <$Vj.10, 'confirm', O_Token.11>, PK_O.12)
+    
+    2. PK_O  = pk(SK_O.10)
+       SK_O  = SK_O.10
+       z     = true
+  */
+
+lemma executable:
+  exists-trace
+  "∃ id_ra id_vj m t #i #j #k.
+    ((((Send( id_ra, m ) @ #i) ∧ (Recv( id_vj, m ) @ #j)) ∧
+      (OsrConfAcceptedBy( id_ra, id_vj, t ) @ #k)) ∧
+     (#i < #j)) ∧
+    (#j < #k)"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ id_ra id_vj m t #i #j #k.
+  (Send( id_ra, m ) @ #i) ∧
+  (Recv( id_vj, m ) @ #j) ∧
+  (OsrConfAcceptedBy( id_ra, id_vj, t ) @ #k)
+ ∧
+  (#i < #j) ∧ (#j < #k)"
+*/
+simplify
+solve( Report( <$Vj, PK_PSi, PK_O, senc(SK_O, Ltk)> ) ▶₀ #i )
+  case REPORT_case_1
+  solve( !RevAuthSK( $RA, SK_RA ) ▶₁ #i )
+    case RA_SETUP
+    solve( !RevAuthPK( $RA, pk(~SK_RA) ) ▶₁ #j )
+      case RA_SETUP
+      solve( !Ltk( $Vj, ~Ltk ) ▶₂ #j )
+        case SETUP_VEHICLE_LTK
+        solve( CanChange( $Vj,
+                          <$Vj, pk(~SK_PSi), pk(~SK_O), senc(~SK_O, ~Ltk)>
+               ) ▶₃ #j )
+          case SETUP_VEHICLE_PSEUDONYM_INIT
+          solve( AwaitRevokeConfirmation( $RA, $Vj, pk(SK_O.1), SK_RA.1
+                 ) ▶₁ #k )
+            case OSR_REQ_SEND_case_1
+            solve( !KU( sign(<$Vj, 'confirm', t>, ~SK_O) ) @ #vk.23 )
+              case OSR_REQ_RECV
+              solve( !KU( sign(<'revoke', 
+                                <$Vj, pk(~SK_PSi), pk(~SK_O), senc(~SK_O, ~Ltk)>, 'reason'>,
+                               ~SK_RA)
+                     ) @ #vk.21 )
+                case OSR_REQ_SEND
+                solve( !KU( senc(~SK_O, ~Ltk) ) @ #vk.19 )
+                  case OSR_REQ_SEND
+                  solve( !KU( pk(~SK_PSi) ) @ #vk.17 )
+                    case OSR_REQ_SEND
+                    solve( !KU( pk(~SK_O) ) @ #vk.20 )
+                      case OSR_REQ_SEND
+                      SOLVED // trace found
+                    qed
+                  qed
+                qed
+              qed
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma revoke_after_change_exists:
+  exists-trace
+  "∃ id_vj id_ra t ps1 ps2 #i #j #k.
+    ((((((Reported( id_vj, ps1 ) @ #i) ∧
+         (ChangePseudonymForVehicle( id_vj, ps1, ps2 ) @ #j)) ∧
+        (OsrConfSentBy( id_vj, id_ra, t ) @ #k)) ∧
+       (#i < #j)) ∧
+      (#j < #k)) ∧
+     (¬(∃ k.1 #n. VehicleCompromised( id_vj, k.1 ) @ #n))) ∧
+    (¬(∃ k.1 #n. VjOReveal( id_vj, k.1 ) @ #n))"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ id_vj id_ra t ps1 ps2 #i #j #k.
+  (Reported( id_vj, ps1 ) @ #i) ∧
+  (ChangePseudonymForVehicle( id_vj, ps1, ps2 ) @ #j) ∧
+  (OsrConfSentBy( id_vj, id_ra, t ) @ #k)
+ ∧
+  (#i < #j) ∧
+  (#j < #k) ∧
+  (∀ k.1 #n. (VehicleCompromised( id_vj, k.1 ) @ #n) ⇒ ⊥) ∧
+  (∀ k.1 #n. (VjOReveal( id_vj, k.1 ) @ #n) ⇒ ⊥)"
+*/
+simplify
+solve( !VehiclePseudonym( $Vj, ps1 ) ▶₀ #i )
+  case CHANGE_PSEUDONYM
+  solve( !Ltk( $Vj, Ltk.1 ) ▶₀ #j )
+    case SETUP_VEHICLE_LTK
+    solve( !RevAuthPK( $RA, pk(SK_RA) ) ▶₁ #k )
+      case RA_SETUP
+      solve( !Ltk( $Vj, Ltk.1 ) ▶₂ #k )
+        case SETUP_VEHICLE_LTK
+        solve( CanChange( $Vj, <$Vj, PK_PSi, PK_O, senc(SK_O.2, ~Ltk)>
+               ) ▶₃ #k )
+          case CHANGE_PSEUDONYM
+          solve( !KU( sign(<'revoke', 
+                            <$Vj, pk(~SK_PSi.2), pk(~SK_O.2), senc(~SK_O.2, ~Ltk)>, 'reason'>,
+                           ~SK_RA)
+                 ) @ #vk.15 )
+            case OSR_REQ_SEND
+            solve( CanChange( $Vj,
+                              <$Vj, pk(~SK_PSi), pk(~SK_O), senc(~SK_O, ~Ltk)>
+                   ) ▶₃ #j )
+              case CHANGE_PSEUDONYM
+              solve( CanChange( $Vj, old ) ▶₃ #vr )
+                case SETUP_VEHICLE_PSEUDONYM_INIT
+                solve( CanChange( $Vj, old ) ▶₃ #vr.3 )
+                  case CHANGE_PSEUDONYM
+                  solve( CanChange( $Vj, old ) ▶₃ #vr.12 )
+                    case CHANGE_PSEUDONYM
+                    solve( CanChange( $Vj, old ) ▶₃ #vr.13 )
+                      case SETUP_VEHICLE_PSEUDONYM_INIT
+                      solve( !KU( senc(~SK_O.2, ~Ltk) ) @ #vk.14 )
+                        case CHANGE_PSEUDONYM
+                        solve( !KU( pk(~SK_PSi.2) ) @ #vk.12 )
+                          case CHANGE_PSEUDONYM
+                          solve( !KU( pk(~SK_O.2) ) @ #vk.14 )
+                            case CHANGE_PSEUDONYM
+                            SOLVED // trace found
+                          qed
+                        qed
+                      qed
+                    qed
+                  qed
+                qed
+              qed
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma osr_req_received_with_change_all:
+  all-traces
+  "∀ id_vj id_ra t #i.
+    (((OsrConfSentBy( id_vj, id_ra, t ) @ #i) ∧
+      (¬(∃ key #k. VehicleCompromised( id_vj, key ) @ #k))) ∧
+     (¬(∃ key #q. VjOReveal( id_vj, key ) @ #q))) ⇒
+    (∃ #a. (OsrReqMsgSentTo( id_ra, id_vj, t ) @ #a) ∧ (#a < #i))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ id_vj id_ra t #i.
+  (OsrConfSentBy( id_vj, id_ra, t ) @ #i)
+ ∧
+  (∀ key #k. (VehicleCompromised( id_vj, key ) @ #k) ⇒ ⊥) ∧
+  (∀ key #q. (VjOReveal( id_vj, key ) @ #q) ⇒ ⊥) ∧
+  (∀ #a. (OsrReqMsgSentTo( id_ra, id_vj, t ) @ #a) ⇒ ¬(#a < #i))"
+*/
+simplify
+solve( !RevAuthPK( $RA, pk(SK_RA) ) ▶₁ #i )
+  case RA_SETUP
+  solve( !Ltk( $Vj, Ltk ) ▶₂ #i )
+    case SETUP_VEHICLE_LTK
+    solve( CanChange( $Vj, <$Vj, PK_PSi, PK_O, senc(SK_O, ~Ltk)>
+           ) ▶₃ #i )
+      case CHANGE_PSEUDONYM
+      solve( !KU( sign(<'revoke', 
+                        <$Vj, pk(~SK_PSi), pk(~SK_O), senc(~SK_O, ~Ltk)>, 'reason'>,
+                       ~SK_RA)
+             ) @ #vk.15 )
+        case OSR_REQ_SEND
+        by contradiction /* from formulas */
+      next
+        case c_sign
+        by solve( !KU( ~SK_RA ) @ #vk.16 )
+      qed
+    next
+      case SETUP_VEHICLE_PSEUDONYM_INIT
+      solve( !KU( sign(<'revoke', 
+                        <$Vj, pk(~SK_PSi), pk(~SK_O), senc(~SK_O, ~Ltk)>, 'reason'>,
+                       ~SK_RA)
+             ) @ #vk.15 )
+        case OSR_REQ_SEND
+        by contradiction /* from formulas */
+      next
+        case c_sign
+        by solve( !KU( ~SK_RA ) @ #vk.16 )
+      qed
+    qed
+  qed
+qed
+
+lemma revoke_with_change_all:
+  all-traces
+  "∀ id_ra id_vj t #i.
+    (((OsrConfAcceptedBy( id_ra, id_vj, t ) @ #i) ∧
+      (¬(∃ key #k. VehicleCompromised( id_vj, key ) @ #k))) ∧
+     (¬(∃ okey #q. VjOReveal( id_vj, okey ) @ #q))) ⇒
+    (∃ #l. (OsrReqMsgRecvBy( id_vj, id_ra, t ) @ #l) ∧ (#l < #i))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ id_ra id_vj t #i.
+  (OsrConfAcceptedBy( id_ra, id_vj, t ) @ #i)
+ ∧
+  (∀ key #k. (VehicleCompromised( id_vj, key ) @ #k) ⇒ ⊥) ∧
+  (∀ okey #q. (VjOReveal( id_vj, okey ) @ #q) ⇒ ⊥) ∧
+  (∀ #l. (OsrReqMsgRecvBy( id_vj, id_ra, t ) @ #l) ⇒ ¬(#l < #i))"
+*/
+simplify
+solve( AwaitRevokeConfirmation( $RA, $Vj, pk(SK_O), SK_RA ) ▶₁ #i )
+  case OSR_REQ_SEND_case_1
+  solve( !KU( sign(<$Vj, 'confirm', t>, ~SK_O) ) @ #vk.9 )
+    case OSR_REQ_RECV
+    by contradiction /* from formulas */
+  next
+    case c_sign
+    solve( !KU( ~SK_O ) @ #vk.10 )
+      case OSR_REQ_SEND
+      solve( !KU( ~Ltk ) @ #vk.11 )
+        case REVEAL_VEHICLE_LTK
+        by contradiction /* from formulas */
+      qed
+    next
+      case REVEAL_VEHICLE_O_KEY
+      by contradiction /* from formulas */
+    next
+      case SETUP_VEHICLE_PSEUDONYM_INIT
+      solve( !KU( ~Ltk ) @ #vk.11 )
+        case REVEAL_VEHICLE_LTK
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+next
+  case OSR_REQ_SEND_case_2
+  solve( !KU( sign(<$Vj, 'confirm', t>, ~SK_O) ) @ #vk.9 )
+    case OSR_REQ_RECV
+    by contradiction /* from formulas */
+  next
+    case c_sign
+    solve( !KU( ~SK_O ) @ #vk.10 )
+      case CHANGE_PSEUDONYM
+      solve( !KU( ~Ltk ) @ #vk.11 )
+        case REVEAL_VEHICLE_LTK
+        by contradiction /* from formulas */
+      qed
+    next
+      case OSR_REQ_SEND
+      solve( !KU( ~Ltk ) @ #vk.11 )
+        case REVEAL_VEHICLE_LTK
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+qed
+
+lemma weak_agreement:
+  all-traces
+  "∀ id_vj id_ra t #i.
+    (OsrConfAcceptedBy( id_ra, id_vj, t ) @ #i) ⇒
+    (((∃ t2 #j. OsrReqMsgRecvBy( id_vj, id_ra, t2 ) @ #j) ∨
+      (∃ #r. RevealLtk( id_vj ) @ #r)) ∨
+     (∃ #r. RevealO( id_vj ) @ #r))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ id_vj id_ra t #i.
+  (OsrConfAcceptedBy( id_ra, id_vj, t ) @ #i)
+ ∧
+  (∀ t2 #j. (OsrReqMsgRecvBy( id_vj, id_ra, t2 ) @ #j) ⇒ ⊥) ∧
+  (∀ #r. (RevealLtk( id_vj ) @ #r) ⇒ ⊥) ∧
+  (∀ #r. (RevealO( id_vj ) @ #r) ⇒ ⊥)"
+*/
+simplify
+solve( AwaitRevokeConfirmation( $RA, $Vj, pk(SK_O), SK_RA ) ▶₁ #i )
+  case OSR_REQ_SEND_case_1
+  solve( !KU( sign(<$Vj, 'confirm', t>, ~SK_O) ) @ #vk.9 )
+    case OSR_REQ_RECV
+    by contradiction /* from formulas */
+  next
+    case c_sign
+    solve( !KU( ~SK_O ) @ #vk.10 )
+      case OSR_REQ_SEND
+      solve( !KU( ~Ltk ) @ #vk.11 )
+        case REVEAL_VEHICLE_LTK
+        by contradiction /* from formulas */
+      qed
+    next
+      case REVEAL_VEHICLE_O_KEY
+      by contradiction /* from formulas */
+    next
+      case SETUP_VEHICLE_PSEUDONYM_INIT
+      solve( !KU( ~Ltk ) @ #vk.11 )
+        case REVEAL_VEHICLE_LTK
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+next
+  case OSR_REQ_SEND_case_2
+  solve( !KU( sign(<$Vj, 'confirm', t>, ~SK_O) ) @ #vk.9 )
+    case OSR_REQ_RECV
+    by contradiction /* from formulas */
+  next
+    case c_sign
+    solve( !KU( ~SK_O ) @ #vk.10 )
+      case CHANGE_PSEUDONYM
+      solve( !KU( ~Ltk ) @ #vk.11 )
+        case REVEAL_VEHICLE_LTK
+        by contradiction /* from formulas */
+      qed
+    next
+      case OSR_REQ_SEND
+      solve( !KU( ~Ltk ) @ #vk.11 )
+        case REVEAL_VEHICLE_LTK
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+qed
+
+lemma noninjective_agreement:
+  all-traces
+  "∀ a b msg #i.
+    (Commit( a, b, msg ) @ #i) ⇒
+    (((∃ #j. Running( b, a, msg ) @ #j) ∨
+      (∃ C #r. RevealLtk( C ) @ #r)) ∨
+     (∃ C #r. RevealO( C ) @ #r))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b msg #i.
+  (Commit( a, b, msg ) @ #i)
+ ∧
+  (∀ #j. (Running( b, a, msg ) @ #j) ⇒ ⊥) ∧
+  (∀ C #r. (RevealLtk( C ) @ #r) ⇒ ⊥) ∧
+  (∀ C #r. (RevealO( C ) @ #r) ⇒ ⊥)"
+*/
+simplify
+solve( Commit( a, b, msg ) @ #i )
+  case OSR_REQ_RECV
+  solve( !RevAuthPK( $RA, pk(SK_RA) ) ▶₁ #i )
+    case RA_SETUP
+    solve( !Ltk( $Vj, Ltk ) ▶₂ #i )
+      case SETUP_VEHICLE_LTK
+      solve( CanChange( $Vj, <$Vj, PK_PSi, PK_O, senc(SK_O, ~Ltk)>
+             ) ▶₃ #i )
+        case CHANGE_PSEUDONYM
+        solve( !KU( sign(<'revoke', 
+                          <$Vj, pk(~SK_PSi), pk(~SK_O), senc(~SK_O, ~Ltk)>, 'reason'>,
+                         ~SK_RA)
+               ) @ #vk.15 )
+          case OSR_REQ_SEND
+          by contradiction /* from formulas */
+        next
+          case c_sign
+          by solve( !KU( ~SK_RA ) @ #vk.16 )
+        qed
+      next
+        case SETUP_VEHICLE_PSEUDONYM_INIT
+        solve( !KU( sign(<'revoke', 
+                          <$Vj, pk(~SK_PSi), pk(~SK_O), senc(~SK_O, ~Ltk)>, 'reason'>,
+                         ~SK_RA)
+               ) @ #vk.15 )
+          case OSR_REQ_SEND
+          by contradiction /* from formulas */
+        next
+          case c_sign
+          by solve( !KU( ~SK_RA ) @ #vk.16 )
+        qed
+      qed
+    qed
+  qed
+next
+  case REV_AUTH_OSR_CONF_RECV
+  solve( AwaitRevokeConfirmation( $RA, $Vj, pk(SK_O), SK_RA ) ▶₁ #i )
+    case OSR_REQ_SEND_case_1
+    solve( !KU( sign(<$Vj, 'confirm', O_Token>, ~SK_O) ) @ #vk.9 )
+      case OSR_REQ_RECV
+      by contradiction /* from formulas */
+    next
+      case c_sign
+      solve( !KU( ~SK_O ) @ #vk.10 )
+        case OSR_REQ_SEND
+        solve( !KU( ~Ltk ) @ #vk.11 )
+          case REVEAL_VEHICLE_LTK
+          by contradiction /* from formulas */
+        qed
+      next
+        case REVEAL_VEHICLE_O_KEY
+        by contradiction /* from formulas */
+      next
+        case SETUP_VEHICLE_PSEUDONYM_INIT
+        solve( !KU( ~Ltk ) @ #vk.11 )
+          case REVEAL_VEHICLE_LTK
+          by contradiction /* from formulas */
+        qed
+      qed
+    qed
+  next
+    case OSR_REQ_SEND_case_2
+    solve( !KU( sign(<$Vj, 'confirm', O_Token>, ~SK_O) ) @ #vk.9 )
+      case OSR_REQ_RECV
+      by contradiction /* from formulas */
+    next
+      case c_sign
+      solve( !KU( ~SK_O ) @ #vk.10 )
+        case CHANGE_PSEUDONYM
+        solve( !KU( ~Ltk ) @ #vk.11 )
+          case REVEAL_VEHICLE_LTK
+          by contradiction /* from formulas */
+        qed
+      next
+        case OSR_REQ_SEND
+        solve( !KU( ~Ltk ) @ #vk.11 )
+          case REVEAL_VEHICLE_LTK
+          by contradiction /* from formulas */
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma noninjective_synchronisation:
+  all-traces
+  "∀ id_ra id_vj t #i.
+    (((OsrConfAcceptedBy( id_ra, id_vj, t ) @ #i) ∧
+      (¬(∃ #q. RevealLtk( id_vj ) @ #q))) ∧
+     (¬(∃ #q. RevealO( id_vj ) @ #q))) ⇒
+    (∃ #l. (OsrReqMsgRecvBy( id_vj, id_ra, t ) @ #l) ∧ (#l < #i))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ id_ra id_vj t #i.
+  (OsrConfAcceptedBy( id_ra, id_vj, t ) @ #i)
+ ∧
+  (∀ #q. (RevealLtk( id_vj ) @ #q) ⇒ ⊥) ∧
+  (∀ #q. (RevealO( id_vj ) @ #q) ⇒ ⊥) ∧
+  (∀ #l. (OsrReqMsgRecvBy( id_vj, id_ra, t ) @ #l) ⇒ ¬(#l < #i))"
+*/
+simplify
+solve( AwaitRevokeConfirmation( $RA, $Vj, pk(SK_O), SK_RA ) ▶₁ #i )
+  case OSR_REQ_SEND_case_1
+  solve( !KU( sign(<$Vj, 'confirm', t>, ~SK_O) ) @ #vk.9 )
+    case OSR_REQ_RECV
+    by contradiction /* from formulas */
+  next
+    case c_sign
+    solve( !KU( ~SK_O ) @ #vk.10 )
+      case OSR_REQ_SEND
+      solve( !KU( ~Ltk ) @ #vk.11 )
+        case REVEAL_VEHICLE_LTK
+        by contradiction /* from formulas */
+      qed
+    next
+      case REVEAL_VEHICLE_O_KEY
+      by contradiction /* from formulas */
+    next
+      case SETUP_VEHICLE_PSEUDONYM_INIT
+      solve( !KU( ~Ltk ) @ #vk.11 )
+        case REVEAL_VEHICLE_LTK
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+next
+  case OSR_REQ_SEND_case_2
+  solve( !KU( sign(<$Vj, 'confirm', t>, ~SK_O) ) @ #vk.9 )
+    case OSR_REQ_RECV
+    by contradiction /* from formulas */
+  next
+    case c_sign
+    solve( !KU( ~SK_O ) @ #vk.10 )
+      case CHANGE_PSEUDONYM
+      solve( !KU( ~Ltk ) @ #vk.11 )
+        case REVEAL_VEHICLE_LTK
+        by contradiction /* from formulas */
+      qed
+    next
+      case OSR_REQ_SEND
+      solve( !KU( ~Ltk ) @ #vk.11 )
+        case REVEAL_VEHICLE_LTK
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+qed
+
+/* All well-formedness checks were successful. */
+
+end
