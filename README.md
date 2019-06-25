@@ -1,6 +1,8 @@
 TAMARIN models
 ==============
 
+[![DOI](https://zenodo.org/badge/193686035.svg)](https://zenodo.org/badge/latestdoi/193686035)
+
 This is the README for the Tamarin files associated with my
 thesis "Formal Analysis and Applications of Direct Anonymous
 Attestation".
